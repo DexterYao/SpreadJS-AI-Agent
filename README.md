@@ -1,8 +1,8 @@
-# SpreadJS Agent
+# SpreadJS AI Agent
 
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 
-SpreadJS Agent 是一个面向 SpreadJS 的 AI 电子表格 Agent。它结合结构化 tool calling、模块化工具暴露、MCP 集成和受保护的 `execute_code` 沙箱，让模型能够在浏览器中可靠地读取、修改和生成工作簿内容。
+SpreadJS AI Agent 是一个面向 SpreadJS 的 AI 电子表格 Agent。它结合结构化 tool calling、模块化工具暴露、MCP 集成和受保护的 `execute_code` 沙箱，让模型能够在浏览器中可靠地读取、修改和生成工作簿内容。
 
 项目基于 [SpreadJS 官网](https://www.grapecity.com.cn/developer/spreadjs) 和 [`@grapecity-software/spread-sheets`](https://www.npmjs.com/package/@grapecity-software/spread-sheets) 构建，当前仓库使用 `SpreadJS 19.0.1` 及其配套插件。
 
