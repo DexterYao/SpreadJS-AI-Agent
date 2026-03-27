@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { recoverActiveModule } from "@/lib/agent/recover-module";
 import { isAppToolPart, type AppUIMessage } from "@/lib/agent/ui-message";
 import { estimateTokens } from "@/lib/token-estimate";
 import { MODEL_CONTEXT_WINDOW } from "@/lib/config";
-import { toolCount } from "@/lib/tools/registry";
+import { baseToolNames, gatewayToolNames, isModuleName, moduleToolMap } from "@/lib/tools/registry";
 
 export interface ContextUsage {
 	/** 上下文窗口总大小 */
@@ -11,7 +12,7 @@ export interface ContextUsage {
 	used: number;
 	/** 使用百分比 (0-100) */
 	percent: number;
-	/** 是否为 API 返回的真实值 */
+	/** 是否已获取服务端 usage */
 	isReal: boolean;
 	/** 分类明细 */
 	breakdown: {
@@ -27,11 +28,20 @@ const SYSTEM_PROMPT_BASE_TOKENS = 1800;
 /** 每个工具定义的平均 token 数 */
 const AVG_TOKENS_PER_TOOL = 120;
 
+function getActiveToolDefinitionCount(messages: AppUIMessage[], mcpToolCount: number): number {
+	const activeModule = recoverActiveModule(messages);
+	if (activeModule && isModuleName(activeModule)) {
+		return baseToolNames.length + moduleToolMap[activeModule].length + 1 + mcpToolCount;
+	}
+	return baseToolNames.length + gatewayToolNames.length + mcpToolCount;
+}
+
 /** 客户端估算，流式过程中实时更新 */
 function estimateUsage(messages: AppUIMessage[], mcpToolCount: number): ContextUsage {
 	const total = MODEL_CONTEXT_WINDOW;
 	const systemInstructions = SYSTEM_PROMPT_BASE_TOKENS;
-	const toolDefinitions = (toolCount + mcpToolCount) * AVG_TOKENS_PER_TOOL;
+	const activeToolDefinitions = getActiveToolDefinitionCount(messages, mcpToolCount);
+	const toolDefinitions = activeToolDefinitions * AVG_TOKENS_PER_TOOL;
 
 	let msgTokens = 0;
 	let toolResultTokens = 0;
@@ -96,10 +106,10 @@ export function useContextUsage(
 
 	// 流结束时 fetch 真实 usage，并通知外部持久化到会话
 	useEffect(() => {
-		const wasStreaming = prevStatusRef.current === "streaming";
+		const wasGenerating = prevStatusRef.current === "streaming" || prevStatusRef.current === "submitted";
 		prevStatusRef.current = chatStatus;
 
-		if (!wasStreaming || chatStatus !== "ready" || messages.length === 0) return;
+		if (!wasGenerating || chatStatus !== "ready" || messages.length === 0) return;
 
 		const controller = new AbortController();
 		fetch("/api/usage", { signal: controller.signal })
@@ -146,16 +156,15 @@ export function useContextUsage(
 			const total = realUsage.contextWindow;
 			const serverUsed = realUsage.promptTokens;
 			// 部分 provider（如 GLM）的 inputTokens 只含 system+tools，不含对话消息。
-			// 取 max(server, client) 避免 provider 漏报时显示偏低。
+			// 已获取服务端 usage 时仍取 max(server, client)，避免 provider 漏报时显示偏低。
 			const clientUsed = estimated.used;
 			const used = Math.max(serverUsed, clientUsed);
-			const isReal = serverUsed >= clientUsed; // server 值完整时标记为真实值
 			const percent = Math.min(Math.round((used / total) * 100), 100);
 			return {
 				total,
 				used,
 				percent,
-				isReal,
+				isReal: true,
 				breakdown: estimated.breakdown, // 明细仍用估算（API 不提供分类）
 			};
 		}

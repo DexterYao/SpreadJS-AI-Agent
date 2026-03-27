@@ -103,8 +103,8 @@ export const ContextUsageIndicator = memo(function ContextUsageIndicator({
 					<div className="text-popover-foreground/70 mt-0.5">
 						{formatTokenCount(used)} / {formatTokenCount(total)} tokens • {percent}%
 						{isReal
-							? <span className="ml-1 text-emerald-500" title="API 返回的真实值">●</span>
-							: <span className="ml-1 text-popover-foreground/30" title="客户端估算值">○</span>
+							? <span className="ml-1 text-emerald-500" title="已获取服务端 usage">●</span>
+							: <span className="ml-1 text-popover-foreground/30" title="仅客户端估算">○</span>
 						}
 					</div>
 				</div>

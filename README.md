@@ -6,6 +6,8 @@ SpreadJS Agent 是一个面向 SpreadJS 的 AI 电子表格 Agent。它结合结
 
 项目基于 [SpreadJS 官网](https://www.grapecity.com.cn/developer/spreadjs) 和 [`@grapecity-software/spread-sheets`](https://www.npmjs.com/package/@grapecity-software/spread-sheets) 构建，当前仓库使用 `SpreadJS 19.0.1` 及其配套插件。
 
+![预览](screenshot.png)
+
 ## 核心特性
 
 - **完整的电子表格操作面**: 当前内置 `91` 个工具，覆盖数据读写、Sheet 管理、格式、条件格式、图表、透视表、表格、批注、验证、单元格状态、单元格类型、形状与图片、超链接、切片器、导入导出与外部检索
