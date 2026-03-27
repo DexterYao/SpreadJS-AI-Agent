@@ -1,0 +1,12 @@
+export { default as manageChart } from "./manage-chart";
+export { default as managePivot } from "./manage-pivot";
+export { default as manageFormat } from "./manage-format";
+export { default as manageConditionalFormatting } from "./manage-conditional-formatting";
+export { default as manageTable } from "./manage-table";
+export { default as manageValidation } from "./manage-validation";
+export { default as manageComment } from "./manage-comment";
+export { default as manageCellState } from "./manage-cell-state";
+export { default as manageCellType } from "./manage-cell-type";
+export { default as manageShape } from "./manage-shape";
+export { default as manageHyperlink } from "./manage-hyperlink";
+export { default as manageSlicer } from "./manage-slicer";

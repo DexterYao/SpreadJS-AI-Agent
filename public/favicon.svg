@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Background -->
+  <rect width="32" height="32" rx="7" fill="#0f172a"/>
+
+  <!-- Letter S -->
+  <text x="16" y="23" font-family="Georgia, serif" font-size="22" font-weight="700"
+        text-anchor="middle" fill="#22c55e">S</text>
+
+  <!-- Outer white 4-point star -->
+  <path d="M26 4 L26.9 7.1 L30 8 L26.9 8.9 L26 12 L25.1 8.9 L22 8 L25.1 7.1 Z"
+        fill="white"/>
+
+  <!-- Inner green 4-point star -->
+  <path d="M26 5.8 L26.5 7.5 L28.2 8 L26.5 8.5 L26 10.2 L25.5 8.5 L23.8 8 L25.5 7.5 Z"
+        fill="#22c55e"/>
+</svg>
