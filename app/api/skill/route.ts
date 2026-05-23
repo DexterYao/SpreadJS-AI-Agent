@@ -108,8 +108,9 @@ system: `你是一个“操作流程提炼助手”。
 - steps[].toolName 必须使用输入里出现过的工具名
 - purpose 要说明这一步在流程中的目的（中文，简洁）
 - inputSummary 只保留关键输入意图，不要复制冗长参数
-- name 和 description 要可读、可复用`,
-prompt: `以下是一次对话中按时间顺序成功执行的工具调用：\n${toolLines}\n\n请生成一个 Skill。`,
+- name 和 description 要可读、可复用
+- 最终输出必须是合法的 json 对象`,
+prompt: `以下是一次对话中按时间顺序成功执行的工具调用：\n${toolLines}\n\n请生成一个 Skill，并仅输出符合 schema 的 json 对象。`,
 maxOutputTokens: 1200,
 });
 
