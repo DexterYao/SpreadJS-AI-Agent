@@ -870,6 +870,10 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 	const applySkill = useCallback((skill: Skill) => {
 		doNewSession();
 		activateSkill(skill);
+		// doNewSession 内部会调用 handleStop，需在技能触发前恢复自动循环状态
+		wasStoppedRef.current = false;
+		autoStepCountRef.current = 0;
+		setStepLimitPaused(false);
 		const triggerMessage = `请按照技能「${skill.name}」的流程执行，请先告诉我需要什么数据。`;
 		ensureConnected().finally(() => {
 			sendMessageWithSnapshotRef.current({ text: triggerMessage });
