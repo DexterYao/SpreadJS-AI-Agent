@@ -8,6 +8,7 @@ export type ErrorSource =
 	| "chat/stream"
 	| "debug/tool-call"
 	| "title/route"
+	| "skill/route"
 	| "tool/execute"
 	| "tool/result";
 
