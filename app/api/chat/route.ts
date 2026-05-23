@@ -110,9 +110,10 @@ export async function POST(req: Request) {
 	let workbookContext: string | undefined;
 	let taskContext: string | undefined;
 	let dirtyContext: string | undefined;
+	let skillContext: string | undefined;
 
 	try {
-		({ messages, workbookContext, taskContext, dirtyContext } = await req.json());
+		({ messages, workbookContext, taskContext, dirtyContext, skillContext } = await req.json());
 	} catch {
 		return new Response("Invalid request body", { status: 400 });
 	}
@@ -145,7 +146,7 @@ export async function POST(req: Request) {
 
 	const isAnthropic = provider === "anthropic";
 	const providerOptions = buildProviderOptions(provider, activeModelName, activeBaseURL);
-	const systemPrompt = buildSystemPrompt({ workbookContext, taskContext, mcpContext, dirtyContext });
+	const systemPrompt = buildSystemPrompt({ workbookContext, taskContext, mcpContext, dirtyContext, skillContext });
 
 	const modelMessages = await convertToModelMessages(messages);
 

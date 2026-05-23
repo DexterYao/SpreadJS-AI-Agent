@@ -35,8 +35,9 @@ import { useContextUsage } from "@/lib/hooks/useContextUsage";
 import { SettingsPanel } from "@/components/settings-panel";
 import { useSettings } from "@/lib/hooks/useSettings";
 import { useTheme } from "@/lib/hooks/useTheme";
+import { useSkills } from "@/lib/hooks/useSkills";
 import { ServiceUnavailableBanner } from "@/components/ai-elements/service-unavailable-banner";
-import { PlusIcon, XIcon, FileIcon, ImageIcon, SparklesIcon, HistoryIcon, PaperclipIcon, Settings2Icon, WrenchIcon, RotateCcwIcon, GitBranchIcon, CopyIcon, PlayIcon, LoaderIcon, BrainIcon, PenLineIcon, AlertCircleIcon, CircleCheckIcon, ChevronDownIcon, PauseCircleIcon, MousePointerIcon } from "lucide-react";
+import { PlusIcon, XIcon, FileIcon, ImageIcon, SparklesIcon, HistoryIcon, PaperclipIcon, Settings2Icon, WrenchIcon, RotateCcwIcon, GitBranchIcon, CopyIcon, PlayIcon, LoaderIcon, BrainIcon, PenLineIcon, AlertCircleIcon, CircleCheckIcon, ChevronDownIcon, PauseCircleIcon, MousePointerIcon, BookOpenIcon, BookmarkPlusIcon } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card";
@@ -76,8 +77,10 @@ import {
 	PromptInputFooter,
 } from "@/components/ai-elements/prompt-input";
 import { SessionHistory } from "@/components/ai-elements/session-history";
+import { SkillLibrary } from "@/components/ai-elements/skill-library";
 import { downloadSessionFile, parseSessionImportFile, importFileToSession, downloadDiagnosticFile } from "@/lib/agent/session-io";
 import { getSession, saveSession } from "@/lib/agent/session-store";
+import type { Skill, SkillStep } from "@/lib/agent/skill-store";
 import type { ErrorLogEntry } from "@/lib/logging/types";
 import { DestructiveConfirmInline } from "@/components/ai-elements/destructive-confirm-inline";
 
@@ -296,6 +299,23 @@ interface ChatPanelProps {
 	onChatPanelWidthChange?: (width: number) => void;
 }
 
+interface ExtractedSkillDraft {
+	name: string;
+	description: string;
+	steps: SkillStep[];
+}
+
+function serializeSkillContext(skill: ExtractedSkillDraft): string {
+	const lines = skill.steps.map((step, idx) => {
+		const input = step.inputSummary ? `（输入意图：${step.inputSummary}）` : "";
+		return `${idx + 1}. ${step.toolName}：${step.purpose}${input}`;
+	});
+	return `技能名称：${skill.name}
+技能描述：${skill.description}
+步骤：
+${lines.join("\n")}`;
+}
+
 export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: ChatPanelProps) {
 	const { workbook, isReady } = useSpreadJS();
 	// 每次渲染更新 ref，保证 handleSubmit（useCallback 闭包）拿到最新 workbook
@@ -308,8 +328,12 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 	const [input, setInput] = useState("");
 	const [showHistory, setShowHistory] = useState(false);
 	const [showSettings, setShowSettings] = useState(false);
+	const [showSkills, setShowSkills] = useState(false);
 	const [historyRefresh, setHistoryRefresh] = useState(0);
 	const [pendingAction, setPendingAction] = useState<{ message: string; action: () => void } | null>(null);
+	const [skillSaving, setSkillSaving] = useState(false);
+	const [skillDraft, setSkillDraft] = useState<ExtractedSkillDraft | null>(null);
+	const [skillNameInput, setSkillNameInput] = useState("");
 
 	// MCP
 	const {
@@ -328,6 +352,15 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 	// 设置
 	const { settings, updateSettings } = useSettings();
 	useTheme(settings.theme, workbook);
+	const {
+		skills,
+		activeSkill,
+		loading: skillLoading,
+		saveSkill,
+		deleteSkill,
+		activateSkill,
+		clearActiveSkill,
+	} = useSkills();
 
 	// 自动保存：中断标记 — 区分 AI 自然完成 vs 用户手动中断
 	const wasStoppedRef = useRef(false);
@@ -342,7 +375,11 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 	const [isDragging, setIsDragging] = useState(false);
 	// 工作簿变更追踪：记录每次 HTTP 请求之间的所有 SpreadJS 变更
 	const { consume: consumeDirty } = useDirtyTracker(workbook);
-	const { buildBody } = useChatContext(workbook, consumeDirty);
+	const skillContextGetter = useCallback(
+		() => (activeSkill ? serializeSkillContext(activeSkill) : undefined),
+		[activeSkill],
+	);
+	const { buildBody } = useChatContext(workbook, consumeDirty, skillContextGetter);
 	const { confirmDialog, requestConfirm, onConfirmChoice } = useDestructiveGuard(settings.allowAllDestructive);
 	const { onToolCall, addToolOutputRef } = useToolDispatch(workbook, pendingFilesRef, requestConfirm, refreshSheetInfo);
 
@@ -775,6 +812,7 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 		clearAttachments();
 		setShowHistory(false);
 		setShowSettings(false);
+		setShowSkills(false);
 		hasNotifiedNewSession.current = false;
 		prevUserMsgCountRef.current = 0;
 		pendingSnapshotRef.current = null;
@@ -790,6 +828,62 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 			doNewSession();
 		}
 	}, [doNewSession]);
+
+	const handleExtractSkill = useCallback(async () => {
+		if (messages.length === 0 || isGeneratingRef.current) return;
+		setSkillSaving(true);
+		try {
+			const res = await fetch("/api/skill", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ messages }),
+			});
+			if (!res.ok) {
+				throw new Error("整理技能失败，请确认对话中已完成工具调用");
+			}
+			const draft = (await res.json()) as ExtractedSkillDraft;
+			if (!draft?.name || !Array.isArray(draft.steps) || draft.steps.length === 0) {
+				throw new Error("技能提取结果无效");
+			}
+			setSkillDraft(draft);
+			setSkillNameInput(draft.name);
+		} catch (e) {
+			console.error("[skill] extract failed", e);
+		} finally {
+			setSkillSaving(false);
+		}
+	}, [messages]);
+
+	const handleConfirmSaveSkill = useCallback(async () => {
+		if (!skillDraft) return;
+		const name = skillNameInput.trim() || skillDraft.name;
+		const saved = await saveSkill({
+			name,
+			description: skillDraft.description,
+			steps: skillDraft.steps,
+		});
+		setSkillDraft(null);
+		setSkillNameInput("");
+		activateSkill(saved);
+	}, [skillDraft, skillNameInput, saveSkill, activateSkill]);
+
+	const applySkill = useCallback((skill: Skill) => {
+		doNewSession();
+		activateSkill(skill);
+		const triggerMessage = `请按照技能「${skill.name}」的流程执行，请先告诉我需要什么数据。`;
+		ensureConnected().finally(() => {
+			sendMessageWithSnapshotRef.current({ text: triggerMessage });
+		});
+	}, [doNewSession, activateSkill, ensureConnected]);
+
+	const handleUseSkill = useCallback((skill: Skill) => {
+		const action = () => applySkill(skill);
+		if (isGeneratingRef.current) {
+			setPendingAction({ message: "AI 正在回复中，确定要中断并切换技能吗？", action });
+		} else {
+			action();
+		}
+	}, [applySkill]);
 
 	const handleSelectSession = useCallback(async (sessionId: string) => {
 		if (sessionId === session.id) {
@@ -808,6 +902,7 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 			autoStepCountRef.current = 0;
 			setStepLimitPaused(false);
 			setShowHistory(false);
+			setShowSkills(false);
 		};
 		if (isGeneratingRef.current) {
 			setPendingAction({ message: "AI 正在回复中，确定要中断并切换会话吗？", action: doSwitch });
@@ -833,6 +928,7 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 			hasNotifiedNewSession.current = forked.messages.length > 0;
 			autoStepCountRef.current = 0;
 			setStepLimitPaused(false);
+			setShowSkills(false);
 			setHistoryRefresh((n) => n + 1);
 
 			if (withRestore && workbook) {
@@ -894,6 +990,7 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 			setStepLimitPaused(false);
 			setHistoryRefresh((n) => n + 1);
 			setShowHistory(false);
+			setShowSkills(false);
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : "导入失败，请检查文件格式";
 			console.error("[importSession] 导入失败", e);
@@ -946,7 +1043,7 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 						<span className="truncate">{headerStatus.text}</span>
 					</span>
 				</div>
-				{/* 右上角按钮组：新建 | 历史 | MCP */}
+				{/* 右上角按钮组：新建 | 历史 | 技能库 | 设置 */}
 				<div className="flex items-center gap-1 flex-shrink-0">
 					<button
 						type="button"
@@ -958,7 +1055,7 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 					</button>
 					<button
 						type="button"
-						onClick={() => { setShowHistory((v) => !v); setShowSettings(false); }}
+						onClick={() => { setShowHistory((v) => !v); setShowSettings(false); setShowSkills(false); }}
 						className={`inline-flex size-7 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-foreground ${
 							showHistory ? "bg-primary/10 text-primary" : "text-muted-foreground"
 						}`}
@@ -968,7 +1065,17 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 					</button>
 					<button
 						type="button"
-						onClick={() => { setShowSettings((v) => !v); setShowHistory(false); }}
+						onClick={() => { setShowSkills((v) => !v); setShowHistory(false); setShowSettings(false); }}
+						className={`inline-flex size-7 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-foreground ${
+							showSkills ? "bg-primary/10 text-primary" : "text-muted-foreground"
+						}`}
+						title="技能库"
+					>
+						<BookOpenIcon className="size-4" />
+					</button>
+					<button
+						type="button"
+						onClick={() => { setShowSettings((v) => !v); setShowHistory(false); setShowSkills(false); }}
 						className={`inline-flex size-7 items-center justify-center rounded-md transition-colors hover:bg-accent hover:text-foreground ${
 							showSettings ? "bg-primary/10 text-primary" : "text-muted-foreground"
 						}`}
@@ -1009,6 +1116,18 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 					onExportSession={handleExportSession}
 					onImportSession={handleImportSession}
 					onExportDiagnostic={handleExportDiagnostic}
+				/>
+			</div>
+
+			{/* 技能库面板（始终挂载，CSS 控制显隐） */}
+			<div className={`absolute inset-x-0 top-[52px] bottom-0 z-20 border-t border-border/60 bg-background shadow-lg ${showSkills ? "" : "hidden"}`}>
+				<SkillLibrary
+					skills={skills}
+					loading={skillLoading}
+					activeSkill={activeSkill}
+					onUseSkill={handleUseSkill}
+					onDeleteSkill={deleteSkill}
+					onClearActiveSkill={clearActiveSkill}
 				/>
 			</div>
 
@@ -1164,6 +1283,21 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 				/>
 				<DestructiveConfirmInline dialog={confirmDialog} onChoice={onConfirmChoice} />
 				<PromptInput onSubmit={handleSubmit}>
+					{activeSkill && (
+						<div className="flex items-center gap-2 px-3 pt-2">
+							<span className="inline-flex items-center gap-1.5 rounded-md border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs font-medium text-primary">
+								<BookOpenIcon className="size-3" />
+								当前技能：{activeSkill.name}
+							</span>
+							<button
+								type="button"
+								onClick={clearActiveSkill}
+								className="text-[11px] text-muted-foreground hover:text-foreground"
+							>
+								清除
+							</button>
+						</div>
+					)}
 					{(sheetInfo || pendingFiles.length > 0) && (
 						<div className="flex w-full items-start gap-1 px-3 pt-2 flex-wrap overflow-y-auto chat-scrollbar" style={{ maxHeight: "6rem" }}>
 							{sheetInfo && (() => {
@@ -1233,6 +1367,15 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 							<button
 								type="button"
 								className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+								disabled={!isReady || isGenerating || messages.length === 0 || skillSaving}
+								onClick={handleExtractSkill}
+								title={skillSaving ? "正在整理技能..." : "将当前对话整理为技能"}
+							>
+								{skillSaving ? <LoaderIcon className="size-4 animate-spin" /> : <BookmarkPlusIcon className="size-4" />}
+							</button>
+							<button
+								type="button"
+								className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
 								disabled={!isReady}
 								onClick={() => fileInputRef.current?.click()}
 								title={visionAvailable ? "添加文件或图片" : "添加文件（图片功能需配置 VISION_MODEL）"}
@@ -1287,6 +1430,53 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 					<DialogFooter>
 						<Button variant="outline" onClick={() => setPendingAction(null)}>取消</Button>
 						<Button variant="destructive" onClick={() => { pendingAction?.action(); setPendingAction(null); }}>确定中断</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			{/* 保存技能确认对话框 */}
+			<Dialog open={!!skillDraft} onOpenChange={(open) => { if (!open) { setSkillDraft(null); setSkillNameInput(""); } }}>
+				<DialogContent className="max-w-lg">
+					<DialogHeader>
+						<DialogTitle>保存为技能</DialogTitle>
+						<DialogDescription>确认技能名称和流程后保存到技能库。</DialogDescription>
+					</DialogHeader>
+					<div className="space-y-3">
+						<div className="space-y-1.5">
+							<label className="text-xs text-muted-foreground">技能名称</label>
+							<input
+								type="text"
+								value={skillNameInput}
+								onChange={(e) => setSkillNameInput(e.target.value)}
+								className="w-full rounded-md border border-border/60 bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary/40"
+								placeholder="输入技能名称"
+							/>
+						</div>
+						{skillDraft && (
+							<div className="space-y-2">
+								<p className="text-xs text-muted-foreground">{skillDraft.description}</p>
+								<ul className="max-h-56 space-y-1 overflow-y-auto rounded-md border border-border/50 bg-muted/20 p-2">
+									{skillDraft.steps.map((step, idx) => (
+										<li key={`${step.toolName}-${idx}`} className="text-xs leading-relaxed text-foreground">
+											<span className="font-medium">{idx + 1}. {step.toolName}</span>
+											<span className="text-muted-foreground"> - {step.purpose}</span>
+										</li>
+									))}
+								</ul>
+							</div>
+						)}
+					</div>
+					<DialogFooter>
+						<Button
+							variant="outline"
+							onClick={() => {
+								setSkillDraft(null);
+								setSkillNameInput("");
+							}}
+						>
+							取消
+						</Button>
+						<Button onClick={handleConfirmSaveSkill}>保存技能</Button>
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>

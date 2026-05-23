@@ -7,6 +7,8 @@ export interface SystemPromptContext {
 	workbookContext?: string;
 	/** 任务计划状态（由客户端从 taskStore 序列化注入） */
 	taskContext?: string;
+	/** 活跃 Skill（由客户端注入） */
+	skillContext?: string;
 	/** MCP 服务器上下文（由 MCP 管理层注入） */
 	mcpContext?: string;
 	/** 用户手动修改记录（上次对话后的增量变更） */
@@ -99,6 +101,22 @@ const taskState: SectionBuilder = (ctx) => {
 ${ctx.taskContext}
 
 按顺序执行 [▸] 标记的任务，完成后调用 complete_task 推进。`;
+};
+
+// ----------------------------------------------------------------------------
+// 4.5 Skill 状态（动态注入）
+// ----------------------------------------------------------------------------
+const skillState: SectionBuilder = (ctx) => {
+	if (!ctx.skillContext) return "";
+	return `## 当前技能流程（Skill）
+
+${ctx.skillContext}
+
+执行要求：
+- 严格按步骤顺序执行
+- 每一步优先调用步骤指定的工具
+- 参数需根据当前工作簿状态自适应，不要机械复用旧参数
+- 某一步缺少必要信息时，先调用 ask_user 询问`;
 };
 
 // ----------------------------------------------------------------------------
@@ -211,6 +229,7 @@ const sections: SectionBuilder[] = [
 	workbookState,
 	userModifications,
 	taskState,
+	skillState,
 	toolUsage,
 	behavior,
 	outputFormat,

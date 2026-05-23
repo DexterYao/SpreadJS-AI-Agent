@@ -17,12 +17,15 @@ import { taskStore } from "@/lib/agent/task-store";
 export function useChatContext(
 	workbook: SpreadWorkbook | null,
 	dirtyConsumer?: () => string | undefined,
+	skillContextGetter?: () => string | undefined,
 ) {
 	const bridgeRef = useRef<typeof import("@/lib/spreadjs/bridge") | null>(null);
 	const workbookRef = useRef(workbook);
 	workbookRef.current = workbook;
 	const dirtyConsumerRef = useRef(dirtyConsumer);
 	dirtyConsumerRef.current = dirtyConsumer;
+	const skillContextRef = useRef(skillContextGetter);
+	skillContextRef.current = skillContextGetter;
 
 	useEffect(() => {
 		import("@/lib/spreadjs/bridge").then((m) => { bridgeRef.current = m; });
@@ -35,6 +38,7 @@ export function useChatContext(
 			: undefined,
 		taskContext: taskStore.serialize() ?? undefined,
 		dirtyContext: dirtyConsumerRef.current?.() ?? undefined,
+		skillContext: skillContextRef.current?.() ?? undefined,
 	}), []);
 
 	return { buildBody };
