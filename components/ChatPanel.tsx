@@ -874,7 +874,7 @@ export default function ChatPanel({ chatPanelWidth, onChatPanelWidthChange }: Ch
 		wasStoppedRef.current = false;
 		autoStepCountRef.current = 0;
 		setStepLimitPaused(false);
-		const triggerMessage = `请按照技能「${skill.name}」的流程执行，请先告诉我需要什么数据。`;
+		const triggerMessage = `请立即按照技能「${skill.name}」的流程完整执行，优先直接完成所有步骤；仅在确实缺少关键信息且无法从当前工作簿判断时再询问我。`;
 		ensureConnected().finally(() => {
 			sendMessageWithSnapshotRef.current({ text: triggerMessage });
 		});
