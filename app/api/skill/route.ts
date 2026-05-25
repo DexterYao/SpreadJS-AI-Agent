@@ -11,12 +11,12 @@ baseURL: LLM_CONFIG.baseURL,
 });
 
 const skillSchema = z.object({
-name: z.string().min(1).max(60),
-description: z.string().min(1).max(300),
+name: z.string().min(1),
+description: z.string().min(1),
 steps: z.array(z.object({
 toolName: z.string().min(1),
-purpose: z.string().min(1).max(200),
-inputSummary: z.string().max(300).optional(),
+purpose: z.string().min(1),
+inputSummary: z.string().optional(),
 })).min(1),
 });
 
