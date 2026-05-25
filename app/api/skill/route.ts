@@ -23,6 +23,8 @@ inputSummary: z.string().max(300).optional(),
 type ToolCall = {
 toolName: string;
 input?: unknown;
+userRequest?: string;
+userRequestChain?: string[];
 };
 
 function summarizeInput(input: unknown): string | undefined {
@@ -36,15 +38,56 @@ return undefined;
 }
 }
 
+function summarizeUserRequest(text: string | undefined): string | undefined {
+if (!text) return undefined;
+const normalized = text.replace(/\s+/g, " ").trim();
+if (!normalized) return undefined;
+return normalized.length > 180 ? `${normalized.slice(0, 180)}...` : normalized;
+}
+
+function summarizeUserRequestChain(chain: string[] | undefined): string | undefined {
+if (!Array.isArray(chain) || chain.length === 0) return undefined;
+const normalized = chain
+.map((item) => summarizeUserRequest(item))
+.filter((item): item is string => Boolean(item));
+if (normalized.length === 0) return undefined;
+const merged = normalized.join(" -> ");
+return merged.length > 260 ? `${merged.slice(0, 260)}...` : merged;
+}
+
+function extractTextParts(parts: unknown): string {
+if (!Array.isArray(parts)) return "";
+return parts
+.map((part) => {
+if (!part || typeof part !== "object") return "";
+const p = part as { type?: unknown; text?: unknown };
+if (p.type !== "text" || typeof p.text !== "string") return "";
+return p.text;
+})
+.filter(Boolean)
+.join(" ");
+}
+
 function extractToolCalls(messages: unknown): ToolCall[] {
 if (!Array.isArray(messages)) return [];
 const calls: ToolCall[] = [];
+let lastUserRequest = "";
+let userRequestChain: string[] = [];
 
 for (const msg of messages) {
 if (!msg || typeof msg !== "object") continue;
 const role = (msg as { role?: unknown }).role;
-if (role !== "assistant") continue;
 const parts = (msg as { parts?: unknown }).parts;
+if (role === "user") {
+lastUserRequest = extractTextParts(parts);
+if (lastUserRequest) {
+const prev = userRequestChain[userRequestChain.length - 1];
+if (prev !== lastUserRequest) userRequestChain.push(lastUserRequest);
+if (userRequestChain.length > 4) userRequestChain = userRequestChain.slice(-4);
+}
+continue;
+}
+if (role !== "assistant") continue;
 if (!Array.isArray(parts)) continue;
 
 for (const part of parts) {
@@ -70,7 +113,12 @@ toolName = p.toolName;
 toolName = p.type.slice(5);
 }
 if (!toolName) continue;
-calls.push({ toolName, input: p.input });
+calls.push({
+toolName,
+input: p.input,
+userRequest: lastUserRequest,
+userRequestChain: [...userRequestChain],
+});
 }
 }
 
@@ -93,7 +141,9 @@ return Response.json({ error: "No completed tool calls found" }, { status: 400 }
 const toolLines = toolCalls
 .map((call, idx) => {
 const inputSummary = summarizeInput(call.input);
-return `${idx + 1}. toolName=${call.toolName}${inputSummary ? `, inputSummary=${inputSummary}` : ""}`;
+const userRequest = summarizeUserRequest(call.userRequest);
+const userRequestChainSummary = summarizeUserRequestChain(call.userRequestChain);
+return `${idx + 1}. toolName=${call.toolName}${inputSummary ? `, inputSummary=${inputSummary}` : ""}${userRequest ? `, userRequest=${userRequest}` : ""}${userRequestChainSummary ? `, userRequestChain=${userRequestChainSummary}` : ""}`;
 })
 .join("\n");
 
@@ -108,9 +158,12 @@ system: `你是一个“操作流程提炼助手”。
 - steps[].toolName 必须使用输入里出现过的工具名
 - purpose 要说明这一步在流程中的目的（中文，简洁）
 - inputSummary 只保留关键输入意图，不要复制冗长参数
+- 如果 userRequest 里有明确要求（如颜色、阈值、目标文本、格式），必须体现在对应步骤的 inputSummary 中并原样保留其关键值
+- 如果 userRequestChain 体现了同一需求下的“修正/补充”，请合并为最终有效要求：后续修正覆盖前面冲突内容，补充内容需保留
+- 不要把“先做错再修正”的过程原样保留为重复步骤；对同一目的只保留最终可复用步骤
 - name 和 description 要可读、可复用
 - 最终输出必须是合法的 json 对象`,
-prompt: `以下是一次对话中按时间顺序成功执行的工具调用：\n${toolLines}\n\n请生成一个 Skill，并仅输出符合 schema 的 json 对象。`,
+prompt: `以下是一次对话中按时间顺序成功执行的工具调用（每一步可能附带用户诉求 userRequest 及其修正链 userRequestChain）：\n${toolLines}\n\n请生成一个 Skill，并仅输出符合 schema 的 json 对象。`,
 maxOutputTokens: 1200,
 });
 
